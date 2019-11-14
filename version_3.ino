@@ -1,8 +1,13 @@
 #include <Wire.h>
+#include <U8g2lib.h>
 #include <RTClib.h>
 #include <dht11.h>
 //#include <HardwareSerial.h>
 
+
+//#define PUMP_TANK1_TIMER 60000
+//#define PUMP_TANK2_TIMER 60000
+//#define PUMP_TANK3_TIMER 60000
 #define PUMP_TANK1_TIMER 13200000
 #define PUMP_TANK2_TIMER 13200000
 #define PUMP_TANK3_TIMER 216000000
@@ -14,9 +19,9 @@
 #define PERPUMP     23
 #define PUMP_XHAUST 13
 
-#define PUMP_TANK1_SENSOR 1
+#define PUMP_TANK1_SENSOR 19
 #define PUMP_TANK2_SENSOR 2
-#define PUMP_TANK3_SENSOR 3
+#define PUMP_TANK3_SENSOR 36
 #define PERPUMP_SENSOR    4 // GPIO that monitors the state (ON/OFF) of the pump
 
 #define CLOSE  500
@@ -36,14 +41,23 @@ const int DUMMY = 22;
       int PUMP_TANK1_SCHED[]  = {0, 6, 12, 18};
       int PUMP_TANK2_SCHED[]  = {0, 6, 12, 18};
       int PUMP_TANK3_SCHED[]  = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23};
+
+//      int PUMP_TANK1_SCHED[]  = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23};
+//      int PUMP_TANK2_SCHED[]  = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23};
+//      int PUMP_TANK3_SCHED[]  = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23};
+
+//      int PUMP_TANK1_SCHED[]  = {0, 30};
+//      int PUMP_TANK2_SCHED[]  = {0, 20, 40};
+//      int PUMP_TANK3_SCHED[]  = {0, 10, 20, 30, 40, 50};
+      
       int PERPUMP_SCHED[]     = {1, 5, 9, 13, 17, 21}; // automatically turn on the pump every 4 hours
       int FEED_SCHED[]        = {6, 23}; // feed the fish every 6AM and 6PM per day
 
 const int PUMP_TANK1_SCHED_SIZE  = sizeof(PUMP_TANK1_SCHED) / sizeof(PUMP_TANK1_SCHED[0]); 
 const int PUMP_TANK2_SCHED_SIZE  = sizeof(PUMP_TANK2_SCHED) / sizeof(PUMP_TANK2_SCHED[0]); 
 const int PUMP_TANK3_SCHED_SIZE  = sizeof(PUMP_TANK3_SCHED) / sizeof(PUMP_TANK3_SCHED[0]); 
-const int PERPUMP_SCHED_SIZE  = sizeof(PERPUMP_SCHED) / sizeof(PERPUMP_SCHED[0]); // get the size of the PERPUMP_SCHED array
-const int FEED_SCHED_SIZE     = sizeof(FEED_SCHED) / sizeof(FEED_SCHED[0]); // get the size of the PERPUMP_SCHED array
+const int PERPUMP_SCHED_SIZE     = sizeof(PERPUMP_SCHED) / sizeof(PERPUMP_SCHED[0]); // get the size of the PERPUMP_SCHED array
+const int FEED_SCHED_SIZE        = sizeof(FEED_SCHED) / sizeof(FEED_SCHED[0]); // get the size of the PERPUMP_SCHED array
 
 int pump_tank1_curr = 0;
 int pump_tank2_curr = 0;
@@ -56,12 +70,28 @@ int pump_tank2_timer = 0;
 int pump_tank3_timer = 0;
 int perpump_timer    = 0;
 int send_data_timer  = 0;
+int global_time      = 0;
+
+char print_time[50] = "";
+
+char print_pump_tank1_on_time[50] = "";
+char print_pump_tank2_on_time[50] = "";
+char print_pump_tank3_on_time[50] = "";
+char print_feed_time[50]          = "";
+
+char print_temperature[50]        = "";
+char print_relative_humidity[50]  = "";
+char print_ph_level[50]           = "";
 
 unsigned long int avgValue = 0;
 
-boolean today = true;
+boolean tank1_today = true;
+boolean tank2_today = true;
+boolean tank3_today = true;
+
 boolean fed = false;
 
+U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 RTC_DS3231 rtc;
 dht11 DHT;
 
@@ -90,6 +120,9 @@ void setup() {
   pinMode(PUMP_XHAUST, OUTPUT);
   pinMode(FEEDER, OUTPUT);
 
+  Serial.println("after pinmodes");
+
+  u8g2.begin();
   if(!rtc.begin()) {
     while(1);
   }
@@ -107,6 +140,7 @@ void setup() {
 
   feed(CLOSE);
   delay(5000);
+  Serial.println("setup done");
 }
 
 void loop() {
@@ -126,56 +160,85 @@ void loop() {
   */
  int current_hour = get_hour();
 
- if (current_hour >= PUMP_TANK1_SCHED[pump_tank1_curr] && today) {
+ if (current_hour < global_time) {
+  if (!tank1_today || !tank2_today || !tank3_today) {
+    tank1_today = true;
+    tank2_today = true;
+    tank3_today = true;
+  }
+ }
+
+ global_time = current_hour;
+ 
+  Serial.println(pump_tank1_curr);
+  Serial.println(pump_tank2_curr);
+  Serial.println(pump_tank3_curr);
+  Serial.println(current_hour);
+  
+ if ((current_hour >= PUMP_TANK1_SCHED[pump_tank1_curr]) && tank1_today) {
     digitalWrite(PUMP_TANK1, HIGH);
+    Serial.println("pump1 on");
     pump_tank1_timer = millis();
     if(pump_tank1_curr == PUMP_TANK1_SCHED_SIZE - 1) {
       pump_tank1_curr = 0;
-      today = false;
+      tank1_today = false;
     }else {
+      Serial.println("increment curr1");
       pump_tank1_curr += 1;
-      today = true;
+      tank1_today = true;
     }
   } else {
    if (digitalRead(PUMP_TANK1_SENSOR)) {
+    Serial.println("pump1 high pin");
       if ((millis() - pump_tank1_timer) > PUMP_TANK1_TIMER) {
         digitalWrite(PUMP_TANK1, LOW);
+        Serial.println("pump1 off");
       }
    }
   }
+  Serial.println("check here");
+  Serial.println(current_hour);
 
-   if (current_hour >= PUMP_TANK2_SCHED[pump_tank2_curr] && today) {
+   if ((current_hour >= PUMP_TANK2_SCHED[pump_tank2_curr]) && tank2_today) {
     digitalWrite(PUMP_TANK2, HIGH);
+    Serial.println("pump2 on");
     pump_tank2_timer = millis();
     if(pump_tank2_curr == PUMP_TANK2_SCHED_SIZE - 1) {
       pump_tank2_curr = 0;
-      today = false;
+      tank2_today = false;
     }else {
+      Serial.println("increment curr2");
       pump_tank2_curr += 1;
-      today = true;
+      tank2_today = true;
     }
   } else {
    if (digitalRead(PUMP_TANK2_SENSOR)) {
+    Serial.println("pump2 high pin");
       if ((millis() - pump_tank2_timer) > PUMP_TANK2_TIMER) {
         digitalWrite(PUMP_TANK2, LOW);
+        Serial.println("pump2 off");
       }
    }
   }
 
-  if (current_hour >= PUMP_TANK3_SCHED[pump_tank3_curr] && today) {
+  if ((current_hour >= PUMP_TANK3_SCHED[pump_tank3_curr]) && tank3_today) {
     digitalWrite(PUMP_TANK3, HIGH);
+    Serial.println("pump3 on");
     pump_tank3_timer = millis();
     if(pump_tank3_curr == PUMP_TANK3_SCHED_SIZE - 1) {
       pump_tank3_curr = 0;
-      today = false;
+      tank3_today = false;
     }else {
+      Serial.println("increment curr3");
       pump_tank3_curr += 1;
-      today = true;
+      tank3_today = true;
     }
   } else {
    if (digitalRead(PUMP_TANK3_SENSOR)) {
+    Serial.println("pump3 high pin");
       if ((millis() - pump_tank3_timer) > PUMP_TANK3_TIMER) {
         digitalWrite(PUMP_TANK3, LOW);
+        Serial.println("pump3 off");
       }
    }
   }
@@ -197,6 +260,8 @@ void loop() {
   //     }
   //  }
   // }
+
+// uncomment after debugging pumps
 
   if (current_hour >= FEED_SCHED[feed_curr] && !fed) {
    turn_servo();
@@ -252,10 +317,23 @@ int get_time_index(char o) {
   if (o == 'T') {
     size = PERPUMP_SCHED_SIZE;
     m = PERPUMP_SCHED;
+  } else if (o == 'X') {
+    size = PUMP_TANK1_SCHED_SIZE;
+    m = PUMP_TANK1_SCHED;
+  } else if (o == 'Y') {
+    size = PUMP_TANK2_SCHED_SIZE;
+    m = PUMP_TANK2_SCHED;
+  } else if (o == 'Z') {
+    size = PUMP_TANK3_SCHED_SIZE;
+    m = PUMP_TANK3_SCHED;
   } else {
     size = FEED_SCHED_SIZE;
     m = FEED_SCHED;
   }
+
+  // size = FEED_SCHED_SIZE;
+  //   m = FEED_SCHED;
+  // }
   
   for (i = 0; i < size - 1; i++) {
     if (i == size - 1) {
@@ -324,12 +402,12 @@ float measure_temp_rh(char o) {
   h = DHT.humidity;
 
   if (o == 't') {
-    Serial.println(t,1);
-    delay(2000);
+//    Serial.println(t,1);
+//    delay(2000);
     return t;
   } else {
-    Serial.println(h,1);
-    delay(2000);
+//    Serial.println(h,1);
+//    delay(2000);
     return h;
   }
 }
