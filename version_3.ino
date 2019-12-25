@@ -8,9 +8,9 @@
 //#define PUMP_TANK1_TIMER 60000
 //#define PUMP_TANK2_TIMER 60000
 //#define PUMP_TANK3_TIMER 60000
-#define PUMP_TANK1_TIMER 13200000
-#define PUMP_TANK2_TIMER 13200000
-#define PUMP_TANK3_TIMER 216000000
+#define PUMP_TANK1_TIMER 600000
+#define PUMP_TANK2_TIMER 600000
+#define PUMP_TANK3_TIMER 3900000
 #define PERPUMP_TIMER    180000 // 3 minutes
 
 #define PUMP_TANK1  27
@@ -38,8 +38,8 @@
 
 const int DUMMY = 22;
 
-      int PUMP_TANK1_SCHED[]  = {0, 6, 12, 18};
-      int PUMP_TANK2_SCHED[]  = {0, 6, 12, 18};
+      int PUMP_TANK1_SCHED[]  = {1, 4, 7, 10, 13, 16, 19, 22};
+      int PUMP_TANK2_SCHED[]  = {1, 4, 7, 10, 13, 16, 19, 22};
       int PUMP_TANK3_SCHED[]  = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23};
 
 //      int PUMP_TANK1_SCHED[]  = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23};
@@ -51,13 +51,15 @@ const int DUMMY = 22;
 //      int PUMP_TANK3_SCHED[]  = {0, 10, 20, 30, 40, 50};
       
       int PERPUMP_SCHED[]     = {1, 5, 9, 13, 17, 21}; // automatically turn on the pump every 4 hours
-      int FEED_SCHED[]        = {6, 23}; // feed the fish every 6AM and 6PM per day
+      int FEED_SCHED[]        = {6, 18}; // feed the fish every 6AM and 6PM per day
 
 const int PUMP_TANK1_SCHED_SIZE  = sizeof(PUMP_TANK1_SCHED) / sizeof(PUMP_TANK1_SCHED[0]); 
 const int PUMP_TANK2_SCHED_SIZE  = sizeof(PUMP_TANK2_SCHED) / sizeof(PUMP_TANK2_SCHED[0]); 
 const int PUMP_TANK3_SCHED_SIZE  = sizeof(PUMP_TANK3_SCHED) / sizeof(PUMP_TANK3_SCHED[0]); 
 const int PERPUMP_SCHED_SIZE     = sizeof(PERPUMP_SCHED) / sizeof(PERPUMP_SCHED[0]); // get the size of the PERPUMP_SCHED array
 const int FEED_SCHED_SIZE        = sizeof(FEED_SCHED) / sizeof(FEED_SCHED[0]); // get the size of the PERPUMP_SCHED array
+
+int minutes = 0;
 
 int pump_tank1_curr = 0;
 int pump_tank2_curr = 0;
@@ -73,15 +75,14 @@ int send_data_timer  = 0;
 int global_time      = 0;
 
 char print_time[50] = "";
+char print_temperature[50] = "";
+char print_relative_humidity[50] = "";
+char print_ph_level[50] = "";
 
 char print_pump_tank1_on_time[50] = "";
 char print_pump_tank2_on_time[50] = "";
 char print_pump_tank3_on_time[50] = "";
 char print_feed_time[50]          = "";
-
-char print_temperature[50]        = "";
-char print_relative_humidity[50]  = "";
-char print_ph_level[50]           = "";
 
 unsigned long int avgValue = 0;
 
@@ -161,10 +162,13 @@ void loop() {
  int current_hour = get_hour();
 
  if (current_hour < global_time) {
-  if (!tank1_today || !tank2_today || !tank3_today) {
+  if (!tank1_today || !tank2_today || !tank3_today ) {
     tank1_today = true;
     tank2_today = true;
     tank3_today = true;
+  }
+  if (fed) {
+    fed = false;
   }
  }
 
@@ -177,6 +181,11 @@ void loop() {
   
  if ((current_hour >= PUMP_TANK1_SCHED[pump_tank1_curr]) && tank1_today) {
     digitalWrite(PUMP_TANK1, HIGH);
+    
+    int h = get_hour();
+    print_pump_tank1_on_time[0] = 0;
+    sprintf(print_pump_tank1_on_time, "P1: %d:%d", h, minutes); 
+    
     Serial.println("pump1 on");
     pump_tank1_timer = millis();
     if(pump_tank1_curr == PUMP_TANK1_SCHED_SIZE - 1) {
@@ -201,6 +210,11 @@ void loop() {
 
    if ((current_hour >= PUMP_TANK2_SCHED[pump_tank2_curr]) && tank2_today) {
     digitalWrite(PUMP_TANK2, HIGH);
+    
+    int h = get_hour();
+    print_pump_tank2_on_time[0] = 0;
+    sprintf(print_pump_tank2_on_time, "P2: %d:%d", h, minutes); 
+    
     Serial.println("pump2 on");
     pump_tank2_timer = millis();
     if(pump_tank2_curr == PUMP_TANK2_SCHED_SIZE - 1) {
@@ -223,6 +237,11 @@ void loop() {
 
   if ((current_hour >= PUMP_TANK3_SCHED[pump_tank3_curr]) && tank3_today) {
     digitalWrite(PUMP_TANK3, HIGH);
+
+    int h = get_hour();
+    print_pump_tank3_on_time[0] = 0;
+    sprintf(print_pump_tank3_on_time, "P3: %d:%d", h, minutes); 
+    
     Serial.println("pump3 on");
     pump_tank3_timer = millis();
     if(pump_tank3_curr == PUMP_TANK3_SCHED_SIZE - 1) {
@@ -297,6 +316,7 @@ void loop() {
   } else {
     digitalWrite(PUMP_XHAUST, LOW);
   }
+  print_oled();
 }
 
 /*
@@ -355,19 +375,45 @@ int get_hour() {
   DateTime now = rtc.now();
   int H  = 0;
   H = now.hour();
+  minutes = now.minute();
 
-  char the_time[50] = "";
-  sprintf(the_time, "Time: %d:%d:%d", now.hour(), now.minute(), now.second()); 
-  Serial.println(the_time);  
+  print_time[0] = 0;
+  sprintf(print_time, "%d:%d", H, minutes); 
+  Serial.println(print_time);  
   return H;
+}
+
+void print_oled() {
+  get_hour();
+  measure_temp_rh('t');
+  measure_temp_rh('r');
+  measure_ph();
+  u8g2.clearBuffer();          // clear the internal memory
+  u8g2.setFont(u8g2_font_logisoso16_tn); // choose a suitable font
+  u8g2.drawStr(8,16,print_time);  // write something to the internal memory
+  u8g2.setFont(u8g2_font_ncenB10_tr); // choose a suitable font
+  u8g2.drawStr(60,12,print_temperature);  // write something to the internal memory
+  u8g2.drawStr(60,26,print_relative_humidity);  // write something to the internal memory
+  u8g2.drawStr(60,40,print_ph_level);  // write something to the internal memory
+  u8g2.setFont(u8g2_font_missingplanet_t_all ); // choose a suitable font
+  u8g2.drawStr(8,32,print_pump_tank1_on_time);  // write something to the internal memory
+  u8g2.drawStr(8,43,print_pump_tank2_on_time);  // write something to the internal memory
+  u8g2.drawStr(8,54,print_pump_tank3_on_time);  // write something to the internal memory
+  u8g2.drawStr(60,54,print_feed_time);  // write something to the internal memory
+  u8g2.sendBuffer();          // transfer internal memory to the display
 }
 
 void turn_servo() {
   feed(OPEN);
   Serial.println("TURNING FINISHED");
+  
   delay(2000);
   feed(CLOSE);
   delay(2000);
+
+  int h = get_hour();
+  print_feed_time[0] = 0;
+  sprintf(print_feed_time, "AF: %d:%d", h, minutes); 
 }
 
 void feed(int state) {
@@ -400,14 +446,18 @@ float measure_temp_rh(char o) {
   }
   t = DHT.temperature;
   h = DHT.humidity;
-
+  delay(2000);
   if (o == 't') {
 //    Serial.println(t,1);
 //    delay(2000);
+    print_temperature[0] = 0;
+    sprintf(print_temperature, "TE: %.1f", t); 
     return t;
   } else {
 //    Serial.println(h,1);
 //    delay(2000);
+    print_relative_humidity[0] = 0;
+    sprintf(print_relative_humidity, "RH: %.1f", h); 
     return h;
   }
 }
@@ -438,6 +488,8 @@ float measure_ph() {
   Serial.print(phValue,2);
   Serial.println(" ");
   delay(800);
+  print_ph_level[0] = 0;
+  sprintf(print_ph_level, "PH: %.1f", phValue); 
   return phValue;
 }
 
